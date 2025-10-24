@@ -1,0 +1,14 @@
+# 忽略 Python 缓存和环境
+__pycache__/
+*.pyc
+.venv/
+virtual/
+
+# 忽略 IDE 和系统文件
+.idea/
+.vscode/
+.DS_Store
+
+# 忽略笔记本、数据和资产
+*.ipynb
+project_assets/
