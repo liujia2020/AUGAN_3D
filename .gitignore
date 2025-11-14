@@ -12,3 +12,5 @@ virtual/
 # 忽略笔记本、数据和资产
 *.ipynb
 project_assets/
+
+*.hdf5

@@ -12,7 +12,7 @@ eps = 2.2204e-16
 
 def load_datasets(acq,target,dtype):
     # Load PICMUS dataset
-    database_path = "./datasets"
+    database_path = "project_assets/datasets"
     assert acq == "simulation" or acq == "experiments" 
     # acq = "simulation"
     # acq = "experiments"

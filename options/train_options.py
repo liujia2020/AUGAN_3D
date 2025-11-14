@@ -15,11 +15,9 @@ class TrainOptions(BaseOptions):
         # parser.add_argument('-b',"--batch_size",type=int,default=10, help="batch size each train epoch")
         # parser.add_argument('-n',"--num_epoch",type=int,default=100,help="training epoch numbers")
         # parser.add_argument('-l',"--learning_rate",type=float,default=0.0001,help="learing rate")
-        parser.add_argument('-f', '--load', type=str, default='./img_data',
-                        help='Load model from a file')
+        parser.add_argument('-f', '--load', type=str, default='./img_data', help='Load model from a file')
         parser.add_argument('-s','--scale',type=float,default=0.5,help='Downscaling factor of the images')
-        parser.add_argument('-v', '--validation',type=float, default=10.0,
-                        help='Percent of the data that is used as validation (0-100)')
+        parser.add_argument('-v', '--validation',type=float, default=10.0, help='Percent of the data that is used as validation (0-100)')
 
         # network saving and loading parameters
         parser.add_argument('--save_latest_freq', type=int, default=5000, help='frequency of saving the latest results')
@@ -29,6 +27,7 @@ class TrainOptions(BaseOptions):
         parser.add_argument('--epoch_count', type=int, default=1, help='the starting epoch count, we save the model by <epoch_count>, <epoch_count>+<save_latest_freq>, ...')
         parser.add_argument('--phase', type=str, default='train', help='train, val, test, etc')
         # training parameters
+        parser.add_argument('--lr_D_ratio', type=float, default=0.1, help='Ratio of Discriminator learning rate to Generator learning rate (lr * lr_D_ratio)')
         parser.add_argument('--niter', type=int, default=1, help='# of iter at starting learning rate')
         parser.add_argument('--n_epochs', type=int, default=1, help='number of epochs with the initial learning rate')
         parser.add_argument('--niter_decay', type=int, default=1, help='# of iter to linearly decay learning rate to zero')

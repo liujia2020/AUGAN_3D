@@ -1,356 +1,401 @@
-# import torch
-# import logging
-# import numpy as np
-# import scipy.io as sio
-# from torch.utils.data import Dataset
-# from cubdl_master.example_picmus_torch import dispaly_img
-# def load_dataset(opt, phase, test_type):
-#     """
-#     Loads ultrasound image data from .mat files, processes it, and creates a PyTorch Dataset.
-#     """
-#     # Define dataset names based on test_type
-#     dataset_names = []
-#     if test_type == 0:  # train mode
-#         dataset_names = [
-#             "simulation_resolution_distorsion_iq", 
-#             "simulation_contrast_speckle_iq",
-#             "experiments_resolution_distorsion_iq", 
-#             "experiments_contrast_speckle_iq", 
-#             "experiments_carotid_long_iq", 
-#             "experiments_carotid_cross_iq"
-#         ]
-#     # --- 添加缺失的 elif 分支 ---
-#     elif test_type == 1:
-#         dataset_names = ["simulation_resolution_distorsion_iq"]
-#     elif test_type == 2:
-#         dataset_names = ["simulation_contrast_speckle_iq"]
-#     elif test_type == 3:
-#         dataset_names = ["experiments_resolution_distorsion_iq"]
-#     elif test_type == 4:
-#         dataset_names = ["experiments_contrast_speckle_iq"]
-#     elif test_type == 5:
-#         dataset_names = ["experiments_carotid_long_iq", "experiments_carotid_cross_iq"]
-#     elif test_type == 6: # all datasets for a comprehensive test
-#         dataset_names = [
-#             "simulation_resolution_distorsion_iq", "simulation_contrast_speckle_iq",
-#             "experiments_resolution_distorsion_iq", "experiments_contrast_speckle_iq",
-#             "experiments_carotid_long_iq", "experiments_carotid_cross_iq"
-#         ]
-#     # --- 添加结束 ---
-
-#     all_single_angle_images_list = [] # 存放所有低质量输入图像 -->单角度
-#     all_compound_images_list = [] # 存放所有高质量输入图片 -->多角度
-    
-#     # Define target dimensions for the network input 
-#     # 原始图像是(508,387)
-#     target_height = 512
-#     target_width = 384
-
-#     if opt.load:
-#         # ... (循环加载文件的代码保持不变) ...
-#         for dataset_name in dataset_names:
-#             phase_suffix = '_train' if phase == 'train' else '_test'
-#             mat_file_path = f'./img_data1/{dataset_name}{phase_suffix}.mat'
-#             data_key_in_mat = f'{dataset_name}_data'
-
-#             try:
-#                 mat_data_dict = sio.loadmat(mat_file_path)
-#             except FileNotFoundError:
-#                 logging.warning(f'File not found, skipping: {mat_file_path}')
-#                 continue
-            
-#             raw_images = mat_data_dict[data_key_in_mat]
-            
-#             single_angle_images = raw_images[:-1, :, :] # 除了最后一张，都是单角度的图片
-#             compound_image = raw_images[-1, :, :][np.newaxis, ...] # 最后一张是高质量图片，保持维度(1, H, w)
-
-#             # --- Correctly Crop and Pad the images ---
-#             single_angle_cropped = single_angle_images[:, :, :target_width]
-#             compound_cropped = compound_image[:, :, :target_width]
-
-#             padded_single = np.zeros((single_angle_cropped.shape[0], target_height, target_width))
-#             padded_compound = np.zeros((compound_cropped.shape[0], target_height, target_width))
-            
-#             h_orig = single_angle_cropped.shape[1] # Original height (508)
-#             padded_single[:, :h_orig, :] = single_angle_cropped
-#             padded_compound[:, :h_orig, :] = compound_cropped
-            
-#             all_single_angle_images_list.append(padded_single)
-#             all_compound_images_list.append(padded_compound)
-            
-#             logging.info(f'Dataset loaded and processed: {dataset_name}')
-
-#     # --- 这里添加一个检查，防止列表为空 ---
-#     if not all_single_angle_images_list:
-#         logging.error(f"No datasets loaded for test_type={test_type} and phase='{phase}'. Check file paths and test_type setting.")
-#         # 返回一个空的 Dataset 或引发错误，取决于你希望如何处理
-#         # return None # 或者 raise ValueError("No data loaded")
-#         # 为了能继续运行，我们暂时返回None，但你应该检查文件是否存在
-#         return AugmentedImageDataset(np.array([]), np.array([])) # 返回空数据集避免后续错误
-        
-#     logging.info('All datasets loaded successfully.')
-
-#     # Combine all loaded data...
-#     final_single_angle_images = np.concatenate(all_single_angle_images_list, axis=0)
-#     final_compound_images = np.concatenate(all_compound_images_list, axis=0)
-
-#     num_datasets = len(all_compound_images_list)
-#     # --- 添加保护，防止除以零 ---
-#     if num_datasets == 0:
-#         num_angles_per_dataset = 0
-#     else:
-#         num_angles_per_dataset = final_single_angle_images.shape[0] // num_datasets
-    
-#     repeated_compound_images = np.repeat(final_compound_images, num_angles_per_dataset, axis=0)
-
-#     final_single_angle_images = final_single_angle_images[:, np.newaxis, :, :]
-#     repeated_compound_images = repeated_compound_images[:, np.newaxis, :, :]
-
-#     image_dataset = AugmentedImageDataset(
-#         low_quality_images=final_single_angle_images,
-#         high_quality_images=repeated_compound_images,
-#     )
-#     return image_dataset
-
-# class AugmentedImageDataset(Dataset):
-#     """
-#     A custom PyTorch Dataset class that takes low and high quality images,
-#     applies data augmentation to the low quality images, and returns image pairs.
-#     """
-#     def __init__(self, low_quality_images, high_quality_images):
-#         super(AugmentedImageDataset, self).__init__()
-
-#         base_images_tensor = torch.from_numpy(low_quality_images).float()
-#         target_images_tensor = torch.from_numpy(high_quality_images).float()
-        
-#         def add_gaussian_noise(images_tensor):
-#             """Adds Gaussian noise to a tensor of images."""
-#             noise = torch.randn_like(images_tensor) * 0.01 # A small amount of noise
-#             return images_tensor + noise
-
-#         # --- Data Augmentation ---
-#         images_with_noise = add_gaussian_noise(base_images_tensor)
-        
-#         # Flip the images
-#         vertically_flipped_images = torch.flip(base_images_tensor, [2])
-#         horizontally_flipped_images = torch.flip(base_images_tensor, [3])
-        
-#         # Combine original and augmented images
-#         self.augmented_input_images = torch.cat([
-#             base_images_tensor, 
-#             images_with_noise, 
-#             horizontally_flipped_images, 
-#             vertically_flipped_images
-#         ])
-        
-#         # Repeat target images to match the number of augmented input images
-#         self.target_images = target_images_tensor.repeat(4, 1, 1, 1)
-
-#         self.len = self.augmented_input_images.shape[0]
-
-
-
-#     def __getitem__(self, index):
-#         return self.augmented_input_images[index], self.target_images[index]
-
-#     def __len__(self):
-#         return self.len
-
-
-# """  Display the original image, reconstructed image and target image"""
-# # def test_image(data, data1, target, xlims, zlims, i, phase, name):
-# """ 显示原始图像、重建图像和目标图像 """
-# def test_image(low_quality_image, generated_image, high_quality_image, xlims, zlims, i, phase, name):
-#     """
-#     显示并保存输入图像、生成图像和目标图像的对比图。
-#     """
-#     # --- 内部变量名修改开始 ---
-    
-#     # 处理 low_quality_image (之前的 data)
-#     lq_image_np = low_quality_image.detach().numpy()
-#     lq_image_np = np.squeeze(lq_image_np)
-#     lq_image_np -= np.max(lq_image_np) # 归一化处理
-
-#     # 处理 generated_image (之前的 data1)
-#     gen_image_np = generated_image.detach().numpy()
-#     gen_image_np = np.squeeze(gen_image_np)
-#     gen_image_np -= np.max(gen_image_np) # 归一化处理
-
-#     # 处理 high_quality_image (之前的 target)
-#     hq_image_np = high_quality_image.detach().numpy()
-#     hq_image_np = np.squeeze(hq_image_np)
-#     hq_image_np -= np.max(hq_image_np) # 归一化处理
-
-#     # 调用显示函数时，传入修改后的变量
-#     dispaly_img(lq_image_np, gen_image_np, hq_image_np, xlims, zlims, [1], i, phase, name)
-
-import os # <-- 确保导入了 os 模块
+import os
 import torch
 import logging
 import numpy as np
-import scipy.io as sio
+import nibabel as nib  # [改造点 1] 导入新库，移除 'sio'
+import random           # [改造点 1] 导入 random 用于裁剪
 from torch.utils.data import Dataset
-from cubdl_master.example_picmus_torch import dispaly_img
+# from cubdl_master.example_picmus_torch import dispaly_img # [改造点 4] 移除 2D 可视化
+from typing import List, Tuple # 用于类型提示
 
-# --- load_dataset 函数 ---
-def load_dataset(opt, phase, test_type):
+# --- [改造点 2] 重构 load_dataset 函数 ---
+def load_dataset(opt, phase):
     """
-    Loads ultrasound image data from .mat files, processes it, and creates a PyTorch Dataset.
+    加载 3D NIfTI 数据集路径。
+    此函数不再加载实际数据，只查找文件路径并将其配对。
     """
-    # ... (dataset_names 的定义保持不变) ...
-    dataset_names = []
-    if test_type == 0: # train mode
-        dataset_names = [
-            "simulation_resolution_distorsion_iq",
-            "simulation_contrast_speckle_iq",
-            "experiments_resolution_distorsion_iq",
-            "experiments_contrast_speckle_iq",
-            "experiments_carotid_long_iq",
-            "experiments_carotid_cross_iq"
-        ]
-    elif test_type == 1: dataset_names = ["simulation_resolution_distorsion_iq"]
-    elif test_type == 2: dataset_names = ["simulation_contrast_speckle_iq"]
-    elif test_type == 3: dataset_names = ["experiments_resolution_distorsion_iq"]
-    elif test_type == 4: dataset_names = ["experiments_contrast_speckle_iq"]
-    elif test_type == 5: dataset_names = ["experiments_carotid_long_iq", "experiments_carotid_cross_iq"]
-    elif test_type == 6: dataset_names = ["simulation_resolution_distorsion_iq", "simulation_contrast_speckle_iq","experiments_resolution_distorsion_iq", "experiments_contrast_speckle_iq", "experiments_carotid_long_iq", "experiments_carotid_cross_iq"]
+    # [改造点 2.1] 根据 opt.dataroot 和 phase (例如 'train') 构建 LQ 和 HQ 目录
+    data_root_dir = opt.dataroot
+    lq_dir = os.path.join(data_root_dir, f"{phase}_lq")
+    hq_dir = os.path.join(data_root_dir, f"{phase}_hq")
 
+    if not os.path.isdir(lq_dir):
+        logging.error(f"低质量 (LQ) 目录未找到: {lq_dir}")
+        return AugmentedImageDataset([], (0,0,0), opt) # 返回空数据集
+    if not os.path.isdir(hq_dir):
+        logging.error(f"高质量 (HQ) 目录未找到: {hq_dir}")
+        return AugmentedImageDataset([], (0,0,0), opt) # 返回空数据集
+        
+    logging.info(f"正在从 {lq_dir} 和 {hq_dir} 查找 NIfTI 文件...")
 
-    all_single_angle_images_list = []
-    all_compound_images_list = []
+    # [改造点 2.2] 扫描 LQ 目录并创建文件路径配对
+    file_pairs: List[Tuple[str, str]] = []
+    lq_filenames = sorted([f for f in os.listdir(lq_dir) if (f.endswith('.nii') or f.endswith('.nii.gz')) and '_lq' in f])
 
-    target_height = 512
-    target_width = 384
+    if not lq_filenames:
+        logging.warning(f"在 {lq_dir} 中未找到包含 '_lq' 后缀的 NIfTI 文件。")
 
-    # --- 检查 opt.dataroot 是否存在 ---
-    # !! 注意: 确保你的 opt 对象里确实有 dataroot 这个属性 !!
-    # 这个属性是在 options/base_options.py 里添加的
-    if not hasattr(opt, 'dataroot') or not opt.dataroot:
-        # 如果没有 dataroot，则退回到使用旧路径，或者报错
-        # 为了兼容你之前的代码，我们先尝试退回旧路径并给出警告
-        logging.warning("Option --dataroot not found or empty. Falling back to default './project_assets'. Make sure options/base_options.py is updated.")
-        # 使用默认的新基础路径 (如果你还没改 base_options.py，这里也会找不到)
-        # 或者直接硬编码新路径 (不推荐)
-        # data_root_dir = './project_assets' # 强制使用新路径
-        # 或者尝试从 opt.checkpoints_dir 推断 (如果 checkpionts_dir 已更新)
-        # data_root_dir = os.path.dirname(os.path.dirname(opt.checkpoints_dir)) # 即 project_assets 目录
-        # 最稳妥：如果 opt.dataroot 不存在，就用你之前移动到的固定路径
-        data_root_dir = './project_assets' # 假设你把它放在这里了
-        if not os.path.isdir(data_root_dir):
-             logging.error(f"Default data root directory '{data_root_dir}' not found. Please specify --dataroot or check directory structure.")
-             return AugmentedImageDataset(np.array([]), np.array([])) # 返回空数据集
-    else:
-        data_root_dir = opt.dataroot # 使用命令行传入或默认的 dataroot
-    # --- dataroot 检查结束 ---
+    for fname in lq_filenames:
+        lq_path = os.path.join(lq_dir, fname)
+        
+        # [!!! 战术修正 !!!]
+        # 动态构建 HQ 路径：假设 LQ 文件名包含 '_lq'，而 HQ 文件名包含 '_hq'
+        if '_lq' not in fname:
+            logging.warning(f"跳过 {fname}：文件名不含 '_lq'，无法推导 HQ 文件名。")
+            continue
+        
+        hq_fname = fname.replace('_lq', '_hq')
+        hq_path = os.path.join(hq_dir, hq_fname)
+        # [!!! 修正结束 !!!]
 
+        if os.path.exists(hq_path):
+            file_pairs.append((lq_path, hq_path))
+        else:
+            # [!!] 这里的日志现在会显示正确的目标路径
+            logging.warning(f"跳过 {lq_path}：未找到对应的 HQ 文件 {hq_path}")
 
-    if opt.load: # opt.load 这个参数似乎与加载 .mat 文件无关，保留原始逻辑
-        for dataset_name in dataset_names:
-            phase_suffix = '_train' if phase == 'train' else '_test'
+    if not file_pairs:
+        logging.error(f"在 {lq_dir} 和 {hq_dir} 中未找到任何匹配的 NIfTI 文件对。")
+        # [!!] 修正：确保在失败时返回一个有效的空数据集
+        return AugmentedImageDataset([], (0,0,0), opt) 
 
-            # --- 核心修改：确保使用 data_root_dir 和新文件夹名 'datasets_mat' ---
-            # 1. 构建 .mat 文件所在的正确目录路径
-            mat_dir = os.path.join(data_root_dir, 'datasets_mat') # 使用 data_root_dir 指向 project_assets
-            # 2. 构建完整的文件路径
-            mat_file_path = os.path.join(mat_dir, f'{dataset_name}{phase_suffix}.mat')
-            # --- 修改结束 ---
+    logging.info(f"成功找到 {len(file_pairs)} 个 NIfTI 文件对。")
 
-            data_key_in_mat = f'{dataset_name}_data'
-
-            try:
-                mat_data_dict = sio.loadmat(mat_file_path)
-            except FileNotFoundError:
-                # --- 让警告信息显示正确的尝试路径 ---
-                logging.warning(f'File not found, skipping: {mat_file_path}') # 显示新的路径
-                # --- 修改结束 ---
-                continue
-            # ... (后续处理 raw_images, single_angle_images 等的代码保持不变) ...
-            raw_images = mat_data_dict[data_key_in_mat]
-            single_angle_images = raw_images[:-1, :, :]
-            compound_image = raw_images[-1, :, :][np.newaxis, ...]
-            single_angle_cropped = single_angle_images[:, :, :target_width]
-            compound_cropped = compound_image[:, :, :target_width]
-            padded_single = np.zeros((single_angle_cropped.shape[0], target_height, target_width))
-            padded_compound = np.zeros((compound_cropped.shape[0], target_height, target_width))
-            h_orig = single_angle_cropped.shape[1]
-            padded_single[:, :h_orig, :] = single_angle_cropped
-            padded_compound[:, :h_orig, :] = compound_cropped
-            all_single_angle_images_list.append(padded_single)
-            all_compound_images_list.append(padded_compound)
-            logging.info(f'Dataset loaded and processed: {dataset_name}')
-
-
-    # --- 处理未加载到文件的情况 ---
-    if not all_single_angle_images_list:
-        logging.error(f"No datasets loaded for test_type={test_type} and phase='{phase}'. Check file paths (e.g., {os.path.join(data_root_dir, 'datasets_mat')}) and test_type setting.")
-        return AugmentedImageDataset(np.array([]), np.array([])) # 返回空数据集
-    # --- 处理结束 ---
-
-    logging.info('All datasets loaded successfully.')
-    # ... (后续 np.concatenate, np.repeat, 创建 AugmentedImageDataset 实例的代码保持不变) ...
-    final_single_angle_images = np.concatenate(all_single_angle_images_list, axis=0)
-    final_compound_images = np.concatenate(all_compound_images_list, axis=0)
-    num_datasets = len(all_compound_images_list)
-    if num_datasets == 0: num_angles_per_dataset = 0
-    else: num_angles_per_dataset = final_single_angle_images.shape[0] // num_datasets
-    repeated_compound_images = np.repeat(final_compound_images, num_angles_per_dataset, axis=0)
-    final_single_angle_images = final_single_angle_images[:, np.newaxis, :, :]
-    repeated_compound_images = repeated_compound_images[:, np.newaxis, :, :]
+    # [改造点 2.3] 简化 test_type 逻辑，按计划硬编码 patch_size
+    patch_size = (64, 64, 64) 
+    
+    # [改造点 2.4] 将路径列表传递给 Dataset
     image_dataset = AugmentedImageDataset(
-        low_quality_images=final_single_angle_images,
-        high_quality_images=repeated_compound_images,
+        file_pairs=file_pairs,
+        patch_size=patch_size,
+        opt=opt
     )
     return image_dataset
 
-
-# --- AugmentedImageDataset 类 (保持不变, 但添加了空数组检查) ---
+# --- [改造点 3] 彻底改造 AugmentedImageDataset 类 ---
 class AugmentedImageDataset(Dataset):
     """
-    A custom PyTorch Dataset class that takes low and high quality images,
-    applies data augmentation to the low quality images, and returns image pairs.
+    3D 数据集类，实现 Lazy Loading 和 3D 随机裁剪。
     """
-    def __init__(self, low_quality_images, high_quality_images):
+    def __init__(self, file_pairs: List[Tuple[str, str]], patch_size: Tuple[int, int, int], opt):
+        """
+        [改造点 3.1] __init__ 
+        不再接收数据，只接收文件路径列表和配置。
+        """
         super(AugmentedImageDataset, self).__init__()
+        
+        self.file_pairs = file_pairs
+        self.patch_size_D, self.patch_size_H, self.patch_size_W = patch_size
+        self.opt = opt
+        self.len = len(self.file_pairs)
+        
+        # [!!] 战略修正：移除 self.affine_headers 字典 (修复多进程漏洞)
+        
+        logging.info(f"AugmentedImageDataset 初始化完成，patch_size={patch_size}。")
 
-        # --- 添加对空数组输入的处理 ---
-        if low_quality_images.size == 0 or high_quality_images.size == 0:
-            logging.warning("AugmentedImageDataset initialized with empty arrays.")
-            self.augmented_input_images = torch.empty(0)
-            self.target_images = torch.empty(0)
-            self.len = 0
-            return # 直接返回
-        # --- 处理结束 ---
 
-        base_images_tensor = torch.from_numpy(low_quality_images).float()
-        target_images_tensor = torch.from_numpy(high_quality_images).float()
+    def normalize(self, volume_np):
+        """[!!] 战略修正：添加 normalize 辅助函数"""
+        """将 3D 容积从 [-60, 0] 裁剪并归一化到 [-1, 1]"""
+        MIN_VAL = -60.0
+        MAX_VAL = 0.0
+        # 1. 裁剪 (Clip)
+        volume_np = np.clip(volume_np, MIN_VAL, MAX_VAL)
+        # 2. 归一化到 [0, 1]
+        volume_np = (volume_np - MIN_VAL) / (MAX_VAL - MIN_VAL)
+        # 3. 缩放到 [-1, 1]
+        return (volume_np * 2.0) - 1.0
 
-        def add_gaussian_noise(images_tensor):
-            noise = torch.randn_like(images_tensor) * 0.01
-            return images_tensor + noise
 
-        images_with_noise = add_gaussian_noise(base_images_tensor)
-        vertically_flipped_images = torch.flip(base_images_tensor, [2])
-        horizontally_flipped_images = torch.flip(base_images_tensor, [3])
+    def __getitem__(self, index: int):
+        """
+        [!!] 战略修正：__getitem__ (实现 Lazy Loading 和模式感知)
+        """
+        # 1. 根据索引获取文件路径
+        lq_path, hq_path = self.file_pairs[index]
 
-        self.augmented_input_images = torch.cat([
-            base_images_tensor,
-            images_with_noise,
-            horizontally_flipped_images,
-            vertically_flipped_images
-        ])
-        self.target_images = target_images_tensor.repeat(4, 1, 1, 1)
-        self.len = self.augmented_input_images.shape[0]
+        try:
+            # [!!] 战略修正：检查模式
+            if self.opt.phase == 'train':
+                # --- 训练模式：返回 64x64x64 随机块 ---
+                lq_nii = nib.load(lq_path)
+                lq_volume = lq_nii.get_fdata().astype(np.float32)
+                hq_nii = nib.load(hq_path)
+                hq_volume = hq_nii.get_fdata().astype(np.float32)
 
-    def __getitem__(self, index):
-        if index >= self.len: raise IndexError("Index out of range")
-        return self.augmented_input_images[index], self.target_images[index]
+                D, H, W = lq_volume.shape
+                if D < self.patch_size_D or H < self.patch_size_H or W < self.patch_size_W:
+                    logging.error(f"文件 {lq_path} 尺寸 ({D},{H},{W}) 小于 patch_size ({self.patch_size_D},{self.patch_size_H},{self.patch_size_W})")
+                    return torch.empty(0), torch.empty(0), "Error"
 
-    def __len__(self):
+                d_start = random.randint(0, D - self.patch_size_D)
+                h_start = random.randint(0, H - self.patch_size_H)
+                w_start = random.randint(0, W - self.patch_size_W)
+
+                # [!!] 战术修正：修复了您计划中的 ... 拼写错误
+                lq_patch = lq_volume[
+                    d_start : d_start + self.patch_size_D,
+                    h_start : h_start + self.patch_size_H,
+                    w_start : w_start + self.patch_size_W
+                ]
+                hq_patch = hq_volume[
+                    d_start : d_start + self.patch_size_D,
+                    h_start : h_start + self.patch_size_H,
+                    w_start : w_start + self.patch_size_W
+                ]
+
+                # [!!] 战略修正：使用 self.normalize
+                lq_patch = self.normalize(lq_patch)
+                hq_patch = self.normalize(hq_patch)
+
+                # 3D 数据增强 (翻转)
+                if not self.opt.no_flip:
+                    if random.random() > 0.5:
+                        lq_patch = np.flip(lq_patch, axis=0).copy()
+                        hq_patch = np.flip(hq_patch, axis=0).copy()
+                    if random.random() > 0.5:
+                        lq_patch = np.flip(lq_patch, axis=1).copy()
+                        hq_patch = np.flip(hq_patch, axis=1).copy()
+                    if random.random() > 0.5:
+                        lq_patch = np.flip(lq_patch, axis=2).copy()
+                        hq_patch = np.flip(hq_patch, axis=2).copy()
+
+                lq_tensor = torch.from_numpy(lq_patch.copy()).float().unsqueeze(0)
+                hq_tensor = torch.from_numpy(hq_patch.copy()).float().unsqueeze(0)
+
+                # [!!] 战略修正：返回 3 个项目 (修复结构不一致漏洞)
+                return lq_tensor, hq_tensor, "N/A" # (添加 "N/A" 占位符)
+
+            elif self.opt.phase == 'test':
+                # --- 测试模式：返回完整的 185x128x128 容积 ---
+                lq_nii = nib.load(lq_path)
+                lq_volume = lq_nii.get_fdata().astype(np.float32)
+                hq_nii = nib.load(hq_path)
+                hq_volume = hq_nii.get_fdata().astype(np.float32)
+
+                # [!!] 战略修正：使用 self.normalize
+                lq_volume_norm = self.normalize(lq_volume)
+                hq_volume_norm = self.normalize(hq_volume)
+
+                lq_tensor = torch.from_numpy(lq_volume_norm).float().unsqueeze(0)
+                hq_tensor = torch.from_numpy(hq_volume_norm).float().unsqueeze(0)
+
+                # [!!] 战略修正：返回 3 个项目 (包括路径，修复多进程漏洞)
+                return lq_tensor, hq_tensor, lq_path
+
+        except Exception as e:
+            logging.error(f"加载或处理文件 {lq_path} 时出错: {e}")
+            return torch.empty(0), torch.empty(0), "Error"
+
+
+    def __len__(self) -> int:
         return self.len
 
-# --- test_image 函数 (保持不变) ---
-def test_image(low_quality_image, generated_image, high_quality_image, xlims, zlims, i, phase, name):
-    lq_image_np = low_quality_image.detach().numpy(); lq_image_np = np.squeeze(lq_image_np); lq_image_np -= np.max(lq_image_np)
-    gen_image_np = generated_image.detach().numpy(); gen_image_np = np.squeeze(gen_image_np); gen_image_np -= np.max(gen_image_np)
-    hq_image_np = high_quality_image.detach().numpy(); hq_image_np = np.squeeze(hq_image_np); hq_image_np -= np.max(hq_image_np)
-    dispaly_img(lq_image_np, gen_image_np, hq_image_np, xlims, zlims, [1], i, phase, name)
+# --- (旧的 'test_image' 函数已移除) ---
+
+# import os
+# import torch
+# import logging
+# import numpy as np
+# import nibabel as nib  # [改造点 1] 导入新库，移除 'sio'
+# import random           # [改造点 1] 导入 random 用于裁剪
+# from torch.utils.data import Dataset
+# # from cubdl_master.example_picmus_torch import dispaly_img # [改造点 4] 移除 2D 可视化
+# from typing import List, Tuple # 用于类型提示
+
+# # --- [改造点 2] 重构 load_dataset 函数 ---
+# def load_dataset(opt, phase):
+#     """
+#     加载 3D NIfTI 数据集路径。
+#     此函数不再加载实际数据，只查找文件路径并将其配对。
+#     """
+#     # [改造点 2.1] 根据 opt.dataroot 和 phase (例如 'train') 构建 LQ 和 HQ 目录
+#     data_root_dir = opt.dataroot
+#     lq_dir = os.path.join(data_root_dir, f"{phase}_lq")
+#     hq_dir = os.path.join(data_root_dir, f"{phase}_hq")
+
+#     if not os.path.isdir(lq_dir):
+#         logging.error(f"低质量 (LQ) 目录未找到: {lq_dir}")
+#         return AugmentedImageDataset([], (0,0,0), opt) # 返回空数据集
+#     if not os.path.isdir(hq_dir):
+#         logging.error(f"高质量 (HQ) 目录未找到: {hq_dir}")
+#         return AugmentedImageDataset([], (0,0,0), opt) # 返回空数据集
+        
+#     logging.info(f"正在从 {lq_dir} 和 {hq_dir} 查找 NIfTI 文件...")
+
+#     # [改造点 2.2] 扫描 LQ 目录并创建文件路径配对
+#     file_pairs: List[Tuple[str, str]] = []
+#     lq_filenames = sorted([f for f in os.listdir(lq_dir) if (f.endswith('.nii') or f.endswith('.nii.gz')) and '_lq' in f])
+
+#     if not lq_filenames:
+#         logging.warning(f"在 {lq_dir} 中未找到包含 '_lq' 后缀的 NIfTI 文件。")
+
+#     for fname in lq_filenames:
+#         lq_path = os.path.join(lq_dir, fname)
+        
+#         # [!!! 战术修正 !!!]
+#         # 动态构建 HQ 路径：假设 LQ 文件名包含 '_lq'，而 HQ 文件名包含 '_hq'
+#         if '_lq' not in fname:
+#             logging.warning(f"跳过 {fname}：文件名不含 '_lq'，无法推导 HQ 文件名。")
+#             continue
+        
+#         hq_fname = fname.replace('_lq', '_hq')
+#         hq_path = os.path.join(hq_dir, hq_fname)
+#         # [!!! 修正结束 !!!]
+
+#         if os.path.exists(hq_path):
+#             file_pairs.append((lq_path, hq_path))
+#         else:
+#             # [!!] 这里的日志现在会显示正确的目标路径
+#             logging.warning(f"跳过 {lq_path}：未找到对应的 HQ 文件 {hq_path}")
+
+#     if not file_pairs:
+#         logging.error(f"在 {lq_dir} 和 {hq_dir} 中未找到任何匹配的 NIfTI 文件对。")
+#         # [!!] 修正：确保在失败时返回一个有效的空数据集
+#         return AugmentedImageDataset([], (0,0,0), opt) 
+
+#     logging.info(f"成功找到 {len(file_pairs)} 个 NIfTI 文件对。")
+
+#     # [改造点 2.3] 简化 test_type 逻辑，按计划硬编码 patch_size
+#     patch_size = (64, 64, 64) 
+    
+#     # [改造点 2.4] 将路径列表传递给 Dataset
+#     image_dataset = AugmentedImageDataset(
+#         file_pairs=file_pairs,
+#         patch_size=patch_size,
+#         opt=opt
+#     )
+#     return image_dataset
+# # --- [改造点 3] 彻底改造 AugmentedImageDataset 类 ---
+# class AugmentedImageDataset(Dataset):
+#     """
+#     3D 数据集类，实现 Lazy Loading 和 3D 随机裁剪。
+#     """
+#     def __init__(self, file_pairs: List[Tuple[str, str]], patch_size: Tuple[int, int, int], opt):
+#         """
+#         [改造点 3.1] __init__ 
+#         不再接收数据，只接收文件路径列表和配置。
+#         """
+#         super(AugmentedImageDataset, self).__init__()
+        
+#         self.file_pairs = file_pairs
+#         self.patch_size_D, self.patch_size_H, self.patch_size_W = patch_size
+#         self.opt = opt
+#         self.len = len(self.file_pairs)
+
+#         # [改造点 3.1] 移除所有预加载和预增强逻辑
+#         # (旧代码中所有 torch.from_numpy, torch.cat, torch.flip 等均已移除)
+#         logging.info(f"AugmentedImageDataset 初始化完成，patch_size={patch_size}。")
+
+
+#     def __getitem__(self, index: int) -> Tuple[torch.Tensor, torch.Tensor]:
+#         """
+#         [改造点 3.2] __getitem__ (实现 Lazy Loading)
+#         """
+#         # 1. 根据索引获取文件路径
+#         lq_path, hq_path = self.file_pairs[index]
+
+#         try:
+#             # 2. 加载完整的 3D NIfTI 容积
+#             # (185, 128, 128) (D, H, W)
+#             lq_nii = nib.load(lq_path)
+#             lq_volume = lq_nii.get_fdata().astype(np.float32)
+
+#             hq_nii = nib.load(hq_path)
+#             hq_volume = hq_nii.get_fdata().astype(np.float32)
+
+#             # 3. 计算随机裁剪坐标
+#             D, H, W = lq_volume.shape
+            
+#             # 确保容积足够大
+#             if D < self.patch_size_D or H < self.patch_size_H or W < self.patch_size_W:
+#                 logging.error(f"文件 {lq_path} 尺寸 ({D},{H},{W}) 小于 patch_size ({self.patch_size_D},{self.patch_size_H},{self.patch_size_W})")
+#                 # 返回空值或错误，这里我们返回 None，DataLoader 应该能处理
+#                 return torch.empty(0), torch.empty(0) 
+
+#             d_start = random.randint(0, D - self.patch_size_D)
+#             h_start = random.randint(0, H - self.patch_size_H)
+#             w_start = random.randint(0, W - self.patch_size_W)
+
+#             # 4. 执行配对裁剪 (必须使用相同的坐标)
+#             lq_patch = lq_volume[
+#                 d_start : d_start + self.patch_size_D,
+#                 h_start : h_start + self.patch_size_H,
+#                 w_start : w_start + self.patch_size_W
+#             ]
+#             hq_patch = hq_volume[
+#                 d_start : d_start + self.patch_size_D,
+#                 h_start : h_start + self.patch_size_H,
+#                 w_start : w_start + self.patch_size_W
+#             ]
+
+#             # # [!!] 战术决策点：数据归一化
+#             # # 战略计划要求一个统一的归一化策略。
+#             # # 在您提供具体策略（例如，[0, 1] 或 [-1, 1]）之前，这里暂不应用归一化。
+#             # # 您需要在这里添加您的归一化代码，例如：
+#             # MIN_VAL = -60.0
+#             # MAX_VAL = 0.0
+#             # lq_patch = (lq_patch - MIN_VAL) / (MAX_VAL - MIN_VAL) * 2.0 - 1.0
+#             # hq_patch = (hq_patch - MIN_VAL) / (MAX_VAL - MIN_VAL) * 2.0 - 1.0
+#             # # 缩放到 [-1, 1] (GAN 常用)
+#             # lq_patch = lq_patch * 2.0 - 1.0
+#             # hq_patch = hq_patch * 2.0 - 1.0
+            
+#             # [!!] 战术决策点：数据归一化
+#             # 根据 3D Slicer 确认，范围是 [-60, 0]
+#             MIN_VAL = -60.0 
+#             MAX_VAL = 0.0
+
+#             # 1. 裁剪 (Clip) - 这是处理 [-3, 1] 问题的关键！
+#             # 这一步确保所有值（包括异常值）都落在 [-60, 0] 范围内。
+#             lq_patch = np.clip(lq_patch, MIN_VAL, MAX_VAL)
+#             hq_patch = np.clip(hq_patch, MIN_VAL, MAX_VAL)
+
+#             # 2. 归一化到 [0, 1]
+#             # 裁剪后，这里的输入保证在 [0, 1] 范围内
+#             lq_patch = (lq_patch - MIN_VAL) / (MAX_VAL - MIN_VAL)
+#             hq_patch = (hq_patch - MIN_VAL) / (MAX_VAL - MIN_VAL)
+            
+#             # 3. 缩放到 [-1, 1]
+#             # 裁剪后，这里的输入保证在 [-1, 1] 范围内
+#             lq_patch = lq_patch * 2.0 - 1.0
+#             hq_patch = hq_patch * 2.0 - 1.0
+
+#             # 5. [改造点 3.3] 执行 3D 数据增强 (按需随机执行)
+#             # 使用 .copy() 来避免 NumPy 负步幅 (negative stride) 问题
+#             if not self.opt.no_flip:
+#                 # 随机翻转 D 轴 (轴向)
+#                 if random.random() > 0.5:
+#                     lq_patch = np.flip(lq_patch, axis=0).copy()
+#                     hq_patch = np.flip(hq_patch, axis=0).copy()
+#                 # 随机翻转 H 轴 (高程)
+#                 if random.random() > 0.5:
+#                     lq_patch = np.flip(lq_patch, axis=1).copy()
+#                     hq_patch = np.flip(hq_patch, axis=1).copy()
+#                 # 随机翻转 W 轴 (横向)
+#                 if random.random() > 0.5:
+#                     lq_patch = np.flip(lq_patch, axis=2).copy()
+#                     hq_patch = np.flip(hq_patch, axis=2).copy()
+
+#             # 6. 转换为 Tensor
+#             lq_tensor = torch.from_numpy(lq_patch).float()
+#             hq_tensor = torch.from_numpy(hq_patch).float()
+
+#             # 7. [改造点 3.4] 添加通道维度 (C)
+#             # (D, H, W) -> (C, D, H, W)
+#             lq_tensor = lq_tensor.unsqueeze(0) # (1, 64, 64, 64)
+#             hq_tensor = hq_tensor.unsqueeze(0) # (1, 64, 64, 64)
+
+#             return lq_tensor, hq_tensor
+
+#         except Exception as e:
+#             logging.error(f"加载或处理文件 {lq_path} 时出错: {e}")
+#             # 返回空张量，以便 DataLoader 的 collate_fn 可以跳过这个样本
+#             return torch.empty(0), torch.empty(0)
+
+
+#     def __len__(self) -> int:
+#         return self.len
+
+# # --- [改造点 4] 移除 2D 'test_image' 函数 ---
+# # (旧的 test_image 函数已完全移除)
